@@ -1,7 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
+using Domain.Users.Repositories;
+using IdentityServer4.EntityFramework.DbContexts;
+using IdentityServer4.EntityFramework.Mappers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -10,8 +15,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Passport.Domain.Models;
-using Passport.Infrastructure.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Passport.Api.Authentication;
+using Passport.Application.Users;
+using Passport.Infrastructure.Common.EntityFrameworkCore;
+using Passport.Infrastructure.Users.EntityFrameworkCore.Repositories;
 
 namespace Passport.Api
 {
@@ -28,35 +36,34 @@ namespace Passport.Api
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddMvc();
-            services.AddDbContextPool<PassportDbContext>(b => b.UseNpgsql(this.Configuration.GetConnectionString("Default")));
+            var connectionString = this.Configuration.GetConnectionString("Default");
 
-            var builder = services.AddIdentityServer(options =>
-                {
-                    options.Events.RaiseErrorEvents = true;
-                    options.Events.RaiseInformationEvents = true;
-                    options.Events.RaiseFailureEvents = true;
-                    options.Events.RaiseSuccessEvents = true;
-                })
+            services.AddDbContext<PassportDbContext>(b => b.UseNpgsql(connectionString));
+
+            services.AddScoped<IUserAppService, UserAppService>();
+            services.AddScoped<IUserRepository, UserRepository>();
+
+            // configure identity server with in-memory stores, keys, clients and scopes
+            services.AddIdentityServer()
+                .AddDeveloperSigningCredential()
+                .AddResourceOwnerValidator<ResourceOwnerPasswordValidator>()
+                .AddProfileService<ProfileService>()
                 // this adds the config data from DB (clients, resources)
                 .AddConfigurationStore(options =>
                 {
-                    options.ConfigureDbContext = b => b.UseNpgsql(this.Configuration.GetConnectionString("Default"));
+                    options.ConfigureDbContext = builder =>
+                        builder.UseNpgsql(connectionString);
                 })
                 // this adds the operational data from DB (codes, tokens, consents)
                 .AddOperationalStore(options =>
                 {
-                    options.ConfigureDbContext = b => b.UseNpgsql(this.Configuration.GetConnectionString("Default"));
+                    options.ConfigureDbContext = builder =>
+                        builder.UseNpgsql(connectionString);
+
+                    // this enables automatic token cleanup. this is optional.
                     options.EnableTokenCleanup = true;
-                    options.TokenCleanupInterval = 15;
+                    options.TokenCleanupInterval = 30;
                 });
-
-            services
-                .AddIdentity<User, Role>()
-                .AddEntityFrameworkStores<PassportDbContext>()
-                .AddDefaultTokenProviders();
-
-            services
-                .AddIdentityServer();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -67,7 +74,52 @@ namespace Passport.Api
                 app.UseDeveloperExceptionPage();
             }
 
+            this.InitializeDatabase(app);
+            app.UseIdentityServer();
             app.UseMvc();
+        }
+
+        private void InitializeDatabase(IApplicationBuilder app)
+        {
+            using (var serviceScope = app.ApplicationServices.GetService<IServiceScopeFactory>().CreateScope())
+            {
+                var context = serviceScope.ServiceProvider.GetRequiredService<ConfigurationDbContext>();
+                if (!context.Clients.Any())
+                {
+                    foreach (var client in Config.Clients)
+                    {
+                        context.Clients.Add(client.ToEntity());
+                    }
+                    context.SaveChanges();
+                }
+
+                if (!context.IdentityResources.Any())
+                {
+                    foreach (var resource in Config.IdentityResources)
+                    {
+                        context.IdentityResources.Add(resource.ToEntity());
+                    }
+                    context.SaveChanges();
+                }
+
+                if (!context.ApiResources.Any())
+                {
+                    foreach (var resource in Config.Apis)
+                    {
+                        context.ApiResources.Add(resource.ToEntity());
+                    }
+                    context.SaveChanges();
+                }
+
+                var passportContext = serviceScope.ServiceProvider.GetRequiredService<PassportDbContext>();
+                if (!passportContext.Users.Any()) {
+                    foreach (var user in Config.Users)
+                    {
+                        passportContext.Users.Add(user);
+                    }
+                    passportContext.SaveChanges();
+                }
+            }
         }
     }
 }

@@ -1,0 +1,26 @@
+version: "3"
+services:
+  db:
+    build: ./db
+    image: passportdb
+    environment:
+      - POSTGRES_PASSWORD=passport@password
+      - POSTGRES_USER=passport
+      - POSTGRES_DB=passportdb
+    ports:
+      - 5432:5432
+    volumes:
+      - passportdb:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4
+    ports:
+      - 8080:80
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=passport@email.com
+      - PGADMIN_DEFAULT_PASSWORD=passport
+    volumes:
+      - pgadmin:/var/lib/pgadmin
+volumes:
+  passportdb:
+  pgadmin:
