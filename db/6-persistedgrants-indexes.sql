@@ -1,0 +1,1 @@
+CREATE INDEX "IX_PersistedGrants_SubjectId_ClientId_Type" ON "PersistedGrants"."PersistedGrants" ("SubjectId", "ClientId", "Type");

@@ -51,12 +51,14 @@ namespace Passport.Api
                 // this adds the config data from DB (clients, resources)
                 .AddConfigurationStore(options =>
                 {
+                    options.DefaultSchema = "Configurations";
                     options.ConfigureDbContext = builder =>
                         builder.UseNpgsql(connectionString);
                 })
                 // this adds the operational data from DB (codes, tokens, consents)
                 .AddOperationalStore(options =>
                 {
+                    options.DefaultSchema = "PersistedGrants";
                     options.ConfigureDbContext = builder =>
                         builder.UseNpgsql(connectionString);
 
